@@ -1,0 +1,53 @@
+# === General ===
+.DS_Store
+*.log
+*.tmp
+
+# === Node modules and build folders ===
+**/node_modules/
+**/build/
+**/dist/
+
+# === Environment files ===
+**/.env
+**/.env.*
+
+# === IDE/editor settings ===
+.vscode/
+.idea/
+*.iml
+
+# === OS/System Files ===
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# === Frontend ===
+frontend/node_modules/
+frontend/build/
+frontend/.env
+frontend/.env.production
+
+# === Backend ===
+target/
+logs/
+*.log
+*.class
+*.jar
+*.war
+*.iml
+
+# Maven local repository (if applicable)
+.mvn/
+!mvn/wrapper/
+
+# === Spring Boot Specific ===
+backend/target/
+backend/.classpath
+backend/.project
+backend/.settings/
+
+# === Docker Artifacts (optional) ===
+**/docker-compose.override.yml
+# **/docker-compose.*.yml
+**/*.local.yml
