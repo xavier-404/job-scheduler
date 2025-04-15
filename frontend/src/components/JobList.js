@@ -22,7 +22,7 @@ import {
   Delete as DeleteIcon,
   Pause as PauseIcon,
   PlayArrow as PlayArrowIcon,
-  AccessTime as AccessTimeIcon 
+  AccessTime as AccessTimeIcon
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import { deleteJob, pauseJob, resumeJob } from '../services/jobService';
@@ -61,39 +61,31 @@ const formatTimeWithTimezone = (timeString, timezone) => {
   if (!timeString) return 'Not scheduled';
   
   try {
-    console.log(`[TIMEZONE-DEBUG] Formatting UI time: raw input=${timeString} in timezone=${timezone}`);
-    
-    // Parse the ISO date string into components
-    // This handles strings like "2025-04-15T07:00:13"
+    // Parse components
     const [datePart, timePart] = timeString.split('T');
     const [year, month, day] = datePart.split('-').map(Number);
-    let [hours, minutes, seconds] = [0, 0, 0];
-    if (timePart) {
-      [hours, minutes, seconds] = timePart.split(':').map(num => Number(num.replace(/\.\d+$/, '')));
-    }
+    const [hours, minutes] = timePart.split(':').map(num => parseInt(num, 10));
     
-    // Create a UTC date object from these components
-    // Important: use UTC methods to prevent browser timezone shifts
-    const date = new Date();
-    date.setUTCFullYear(year);
-    date.setUTCMonth(month - 1); // Month is 0-indexed in JavaScript
-    date.setUTCDate(day);
-    date.setUTCHours(hours);
-    date.setUTCMinutes(minutes);
-    date.setUTCSeconds(seconds || 0);
+    // Format the date parts
+    const date = new Date(year, month-1, day);
+    const monthName = date.toLocaleString('en-US', { month: 'short' });
     
-    console.log(`[TIMEZONE-DEBUG] Created UTC date: ${date.toISOString()}`);
+    // Format the time parts
+    let hour = hours % 12;
+    if (hour === 0) hour = 12;
+    const ampm = hours >= 12 ? 'PM' : 'AM';
     
-    // Format the date in the specific timezone
-    const formatted = formatInTimeZone(date, timezone, "MMM d, yyyy 'at' h:mm a '('zzz')'");
-    console.log(`[TIMEZONE-DEBUG] Formatted output: ${formatted}`);
+    // Format the timezone part
+    let tzDisplay = timezone === 'UTC' ? 'UTC' : 
+                   timezone === 'Asia/Kolkata' ? 'IST' : timezone;
     
-    return formatted;
+    // Build the final string
+    return `${monthName} ${day}, ${year} at ${hour}:${minutes.toString().padStart(2, '0')} ${ampm} (${tzDisplay})`;
   } catch (e) {
-    console.error('[TIMEZONE-DEBUG] Error formatting date:', e);
     return timeString;
   }
 };
+
 /**
  * Gets the current time in the specified timezone.
  * 
@@ -133,7 +125,7 @@ const getScheduleDescription = (job) => {
         if (cronParts.length >= 6) {
           const minute = cronParts[1];
           const hour = cronParts[2];
-          
+
           // Create a descriptive string based on the cron pattern
           let timeStr = '';
           if (hour.includes('/')) {
@@ -144,14 +136,14 @@ const getScheduleDescription = (job) => {
             // Regular time pattern (e.g., "At 14:30")
             timeStr = `at ${hour}:${minute}`;
           }
-          
+
           // Check for day of week or day of month patterns
           if (cronParts[5] !== '?' && cronParts[5] !== '*') {
             // Weekly pattern
             const days = cronParts[5].split(',');
             const dayNames = days.map(dayNum => {
               const dayMap = {
-                '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday', 
+                '1': 'Monday', '2': 'Tuesday', '3': 'Wednesday',
                 '4': 'Thursday', '5': 'Friday', '6': 'Saturday', '7': 'Sunday'
               };
               return dayMap[dayNum] || dayNum;
@@ -321,18 +313,18 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
                 <TableCell>{job.clientId}</TableCell>
                 <TableCell>{getScheduleDescription(job)}</TableCell>
                 <TableCell>
-                  {job.nextFireTime 
+                  {job.nextFireTime
                     ? formatTimeWithTimezone(job.nextFireTime, job.timeZone)
-                    : job.scheduleType === 'RECURRING' 
+                    : job.scheduleType === 'RECURRING'
                       ? `Based on cron: ${job.cronExpression}`
                       : 'Not scheduled'}
                 </TableCell>
                 <TableCell>
                   <Tooltip title="All times are specific to this timezone">
-                    <Chip 
-                      icon={<AccessTimeIcon />} 
-                      label={job.timeZone} 
-                      variant="outlined" 
+                    <Chip
+                      icon={<AccessTimeIcon />}
+                      label={job.timeZone}
+                      variant="outlined"
                       size="small"
                     />
                   </Tooltip>
