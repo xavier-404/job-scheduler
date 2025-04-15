@@ -55,22 +55,45 @@ const getStatusColor = (status) => {
  * @param {string} timezone - The timezone
  * @returns {string} The formatted time string with timezone
  */
+// Update the formatTimeWithTimezone function to handle the timezone correctly
+// and to parse the time string correctly.
 const formatTimeWithTimezone = (timeString, timezone) => {
   if (!timeString) return 'Not scheduled';
   
   try {
-    // Parse the ISO date string
-    const date = new Date(timeString);
+    console.log(`[TIMEZONE-DEBUG] Formatting UI time: raw input=${timeString} in timezone=${timezone}`);
     
-    // Format the date in the specific timezone using date-fns-tz
-    // Make sure the timezone is explicitly displayed
-    return formatInTimeZone(date, timezone, "MMM d, yyyy 'at' h:mm a '('zzz')'");
+    // Parse the ISO date string into components
+    // This handles strings like "2025-04-15T07:00:13"
+    const [datePart, timePart] = timeString.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    let [hours, minutes, seconds] = [0, 0, 0];
+    if (timePart) {
+      [hours, minutes, seconds] = timePart.split(':').map(num => Number(num.replace(/\.\d+$/, '')));
+    }
+    
+    // Create a UTC date object from these components
+    // Important: use UTC methods to prevent browser timezone shifts
+    const date = new Date();
+    date.setUTCFullYear(year);
+    date.setUTCMonth(month - 1); // Month is 0-indexed in JavaScript
+    date.setUTCDate(day);
+    date.setUTCHours(hours);
+    date.setUTCMinutes(minutes);
+    date.setUTCSeconds(seconds || 0);
+    
+    console.log(`[TIMEZONE-DEBUG] Created UTC date: ${date.toISOString()}`);
+    
+    // Format the date in the specific timezone
+    const formatted = formatInTimeZone(date, timezone, "MMM d, yyyy 'at' h:mm a '('zzz')'");
+    console.log(`[TIMEZONE-DEBUG] Formatted output: ${formatted}`);
+    
+    return formatted;
   } catch (e) {
-    console.error('Error formatting date:', e);
+    console.error('[TIMEZONE-DEBUG] Error formatting date:', e);
     return timeString;
   }
 };
-
 /**
  * Gets the current time in the specified timezone.
  * 

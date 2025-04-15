@@ -29,6 +29,8 @@ public class JobResponse {
     private Job.JobStatus status; // Current status of the job (e.g., SCHEDULED, RUNNING, COMPLETED_SUCCESS, COMPLETED_FAILURE).
     private LocalDateTime createdAt; // Timestamp of when the job was created.
     private LocalDateTime updatedAt; // Timestamp of the last update to the job.
+    // Add this new field
+    private String error; // Field to hold error messages for failed jobs
 
     /**
      * Converts a Job entity to a JobResponse DTO.

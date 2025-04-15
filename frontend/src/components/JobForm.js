@@ -18,10 +18,10 @@ import {
   Divider,
   Alert
 } from '@mui/material';
-import { 
+import {
   DEFAULT_TIMEZONE,  // Add this import
-  formatInTimezone, 
-  formatForServer, 
+  formatInTimezone,
+  formatForServer,
   createFutureDate,
   getCurrentTimeInTimezone,
   isDateInPast
@@ -271,23 +271,24 @@ const JobForm = ({ onJobAdded }) => {
    */
   const validateForm = () => {
     const newErrors = {};
-
+  
     if (!formData.clientId.trim()) {
       newErrors.clientId = 'Client ID is required';
     }
-
+  
     if (formData.scheduleType === 'ONE_TIME' && !formData.immediateExecution && !formData.startTime) {
       newErrors.startTime = 'Start time is required for one-time jobs';
     }
-
+  
     // Validate that startTime is in the future for ONE_TIME jobs
     // This is critical - we need to check if the time is in the past in the SELECTED timezone
     if (formData.scheduleType === 'ONE_TIME' && !formData.immediateExecution && formData.startTime) {
+      console.log(`[TIMEZONE-DEBUG] Validating date ${formData.startTime} in timezone ${formData.timeZone}`);
+      
       if (isDateInPast(formData.startTime, formData.timeZone)) {
         newErrors.startTime = `Start time must be in the future in ${formData.timeZone} timezone`;
       }
     }
-
     if (formData.scheduleType === 'RECURRING') {
       if (formData.daysOfWeek.length === 0 && formData.daysOfMonth.length === 0 && !formData.hourlyInterval) {
         newErrors.recurrence = 'Please select a recurrence pattern';
@@ -304,41 +305,33 @@ const JobForm = ({ onJobAdded }) => {
    */
   const handleSubmit = async (e) => {
     e.preventDefault();
-  
+
     // Validate form
     const validationErrors = validateForm();
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
       return;
     }
-  
+
+    console.log(`[TIMEZONE-DEBUG] Submitting job with selected time: ${formData.startTime} in timezone ${formData.timeZone}`);
+
     setLoading(true);
-  
+
     try {
       // Prepare job request
       const jobRequest = {
         clientId: formData.clientId,
         scheduleType: formData.immediateExecution ? 'IMMEDIATE' : formData.scheduleType,
-        timeZone: formData.timeZone
+        timeZone: formData.timeZone // Always send the selected timezone
       };
-  
+
       if (formData.scheduleType === 'ONE_TIME' && !formData.immediateExecution) {
-        // IMPORTANT FIX: We need to send the local browser time, not the UTC time
-        // Extract local components directly from the Date object
-        const localDate = formData.startTime;
-        
-        const year = localDate.getFullYear();
-        const month = String(localDate.getMonth() + 1).padStart(2, '0');
-        const day = String(localDate.getDate()).padStart(2, '0');
-        const hours = String(localDate.getHours()).padStart(2, '0');
-        const minutes = String(localDate.getMinutes()).padStart(2, '0');
-        const seconds = String(localDate.getSeconds()).padStart(2, '0');
-        
-        // Format as ISO string WITHOUT timezone part, using LOCAL components
-        const dateTimeString = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
-        
-        console.log(`Scheduling job for: ${dateTimeString} in timezone ${formData.timeZone}`);
+        // Format the date as an ISO string WITHOUT timezone info
+        // The backend will interpret this in the context of the specified timezone
+        const dateTimeString = formatForServer(formData.startTime);
         jobRequest.startTime = dateTimeString;
+
+        console.log(`[TIMEZONE-DEBUG] Scheduling job for ${dateTimeString} in ${formData.timeZone}`);
       }
       else if (formData.scheduleType === 'RECURRING') {
         // Add recurrence fields
@@ -349,7 +342,7 @@ const JobForm = ({ onJobAdded }) => {
         } else if (formData.hourlyInterval) {
           jobRequest.hourlyInterval = parseInt(formData.hourlyInterval);
         }
-  
+
         // Add the execution time for recurring jobs
         if (formData.recurringTime) {
           const hours = formData.recurringTime.getHours();
@@ -358,10 +351,10 @@ const JobForm = ({ onJobAdded }) => {
           jobRequest.recurringTimeMinute = minutes;
         }
       }
-  
+
       // Create the job
       await createJob(jobRequest);
-  
+
       // Reset form
       setFormData({
         clientId: '',
@@ -375,12 +368,12 @@ const JobForm = ({ onJobAdded }) => {
         hourlyInterval: 1,
         recurringTime: new Date(new Date().setHours(12, 0, 0, 0))
       });
-  
+
       // Notify parent component
       onJobAdded();
     } catch (error) {
       console.error('Error creating job:', error);
-  
+
       if (error.response && error.response.data) {
         if (error.response.data.details) {
           // Set field-specific errors

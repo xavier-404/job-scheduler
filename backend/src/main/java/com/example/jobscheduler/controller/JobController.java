@@ -2,6 +2,8 @@ package com.example.jobscheduler.controller;
 
 import com.example.jobscheduler.dto.JobRequest;
 import com.example.jobscheduler.dto.JobResponse;
+import com.example.jobscheduler.model.Job; // Ensure this is the correct package for the Job class
+import com.example.jobscheduler.exception.PastScheduleTimeException;
 import com.example.jobscheduler.service.AsyncJobService;
 import com.example.jobscheduler.service.JobSchedulerService;
 import jakarta.validation.Valid;
@@ -35,16 +37,22 @@ public class JobController {
      * @return the created job response
      */
     @PostMapping
-    public ResponseEntity<Void> createJob(@Valid @RequestBody JobRequest jobRequest) {
+    public ResponseEntity<JobResponse> createJob(@Valid @RequestBody JobRequest jobRequest) {
         log.info("Received request to create job for clientId: {}", jobRequest.getClientId());
-        log.info("Job request details: scheduleType={}, timeZone={}, startTime={}", 
-                 jobRequest.getScheduleType(), jobRequest.getTimeZone(), jobRequest.getStartTime());
-        
-        // Start the asynchronous scheduling process
-        asyncJobService.scheduleJobAsync(jobRequest);
-        
-        // Return accepted status code to indicate the request has been accepted for processing
-        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
+        log.info("Job request details: scheduleType={}, timeZone={}, startTime={}",
+                jobRequest.getScheduleType(), jobRequest.getTimeZone(), jobRequest.getStartTime());
+
+        try {
+            JobResponse jobResponse = jobSchedulerService.createJob(jobRequest);
+            return ResponseEntity.status(HttpStatus.CREATED).body(jobResponse);
+        } catch (PastScheduleTimeException e) {
+            log.warn("Attempted to schedule job in the past: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(JobResponse.builder()
+                            .status(Job.JobStatus.COMPLETED_FAILURE)
+                            .error("Cannot schedule jobs in the past. Please select a future time.")
+                            .build());
+        }
     }
 
     /**
