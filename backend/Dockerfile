@@ -16,7 +16,14 @@ WORKDIR /app
 
 # Set environment variables
 ENV SPRING_PROFILES_ACTIVE=prod
-ENV TZ=UTC
+ENV TZ=Asia/Kolkata
+
+# Install tzdata package for proper timezone support
+RUN apk add --no-cache tzdata
+
+# Set the timezone
+RUN cp /usr/share/zoneinfo/Asia/Kolkata /etc/localtime && \
+    echo "Asia/Kolkata" > /etc/timezone
 
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
@@ -26,4 +33,4 @@ USER appuser
 COPY --from=build /app/target/*.jar app.jar
 
 # Set the entrypoint
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Duser.timezone=Asia/Kolkata", "-jar", "app.jar"]

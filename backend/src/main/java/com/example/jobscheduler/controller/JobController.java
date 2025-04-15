@@ -2,6 +2,7 @@ package com.example.jobscheduler.controller;
 
 import com.example.jobscheduler.dto.JobRequest;
 import com.example.jobscheduler.dto.JobResponse;
+import com.example.jobscheduler.service.AsyncJobService;
 import com.example.jobscheduler.service.JobSchedulerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import java.util.UUID;
 
 /**
  * REST controller for job operations.
+ * Provides endpoints for creating, retrieving, updating, and deleting jobs.
  */
 @RestController
 @RequestMapping("/api/jobs")
@@ -23,18 +25,24 @@ import java.util.UUID;
 public class JobController {
 
     private final JobSchedulerService jobSchedulerService;
+    private final AsyncJobService asyncJobService;
 
     /**
-     * Creates a new job.
+     * Creates a new job asynchronously.
+     * Returns a response immediately and schedules the job in the background.
      *
      * @param jobRequest the job request
      * @return the created job response
      */
     @PostMapping
-    public ResponseEntity<JobResponse> createJob(@Valid @RequestBody JobRequest jobRequest) {
+    public ResponseEntity<Void> createJob(@Valid @RequestBody JobRequest jobRequest) {
         log.info("Received request to create job for clientId: {}", jobRequest.getClientId());
-        JobResponse jobResponse = jobSchedulerService.createJob(jobRequest);
-        return ResponseEntity.status(HttpStatus.CREATED).body(jobResponse);
+        
+        // Start the asynchronous scheduling process
+        asyncJobService.scheduleJobAsync(jobRequest);
+        
+        // Return accepted status code to indicate the request has been accepted for processing
+        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
     /**
@@ -68,61 +76,58 @@ public class JobController {
     }
 
     /**
-     * Deletes a job by ID.
+     * Deletes a job by ID asynchronously.
      *
      * @param id the job ID
-     * @return no content if the job was deleted successfully
+     * @return no content if the job deletion was initiated successfully
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteJob(@PathVariable UUID id) {
         log.info("Received request to delete job with ID: {}", id);
         try {
-            jobSchedulerService.deleteJob(id);
-            return ResponseEntity.noContent().build();
-        } catch (IllegalArgumentException e) {
-            log.warn("Job not found: {}", id);
-            return ResponseEntity.notFound().build();
-        }
-    }
-
-    /**
-     * Pauses a job by ID.
-     *
-     * @param id the job ID
-     * @return the updated job response
-     */
-    @PatchMapping("/{id}/pause")
-    public ResponseEntity<JobResponse> pauseJob(@PathVariable UUID id) {
-        log.info("Received request to pause job with ID: {}", id);
-        try {
-            JobResponse job = jobSchedulerService.pauseJob(id);
-            return ResponseEntity.ok(job);
-        } catch (IllegalArgumentException e) {
-            log.warn("Job not found: {}", id);
-            return ResponseEntity.notFound().build();
-        } catch (RuntimeException e) {
-            log.error("Error pausing job: {}", e.getMessage(), e);
+            // Initiate asynchronous deletion
+            asyncJobService.deleteJobAsync(id);
+            return ResponseEntity.accepted().build();
+        } catch (Exception e) {
+            log.error("Error initiating job deletion: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
     /**
-     * Resumes a job by ID.
+     * Pauses a job by ID asynchronously.
      *
      * @param id the job ID
-     * @return the updated job response
+     * @return accepted response indicating the pause operation has been initiated
+     */
+    @PatchMapping("/{id}/pause")
+    public ResponseEntity<Void> pauseJob(@PathVariable UUID id) {
+        log.info("Received request to pause job with ID: {}", id);
+        try {
+            // Initiate asynchronous pause
+            asyncJobService.pauseJobAsync(id);
+            return ResponseEntity.accepted().build();
+        } catch (Exception e) {
+            log.error("Error initiating job pause: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Resumes a job by ID asynchronously.
+     *
+     * @param id the job ID
+     * @return accepted response indicating the resume operation has been initiated
      */
     @PatchMapping("/{id}/resume")
-    public ResponseEntity<JobResponse> resumeJob(@PathVariable UUID id) {
+    public ResponseEntity<Void> resumeJob(@PathVariable UUID id) {
         log.info("Received request to resume job with ID: {}", id);
         try {
-            JobResponse job = jobSchedulerService.resumeJob(id);
-            return ResponseEntity.ok(job);
-        } catch (IllegalArgumentException e) {
-            log.warn("Job not found: {}", id);
-            return ResponseEntity.notFound().build();
-        } catch (RuntimeException e) {
-            log.error("Error resuming job: {}", e.getMessage(), e);
+            // Initiate asynchronous resume
+            asyncJobService.resumeJobAsync(id);
+            return ResponseEntity.accepted().build();
+        } catch (Exception e) {
+            log.error("Error initiating job resume: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

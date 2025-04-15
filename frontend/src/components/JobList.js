@@ -13,14 +13,16 @@ import {
   Typography,
   Box,
   CircularProgress,
-  Alert
+  Alert,
+  Tooltip
 } from '@mui/material';
-import { format } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import {
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
   Pause as PauseIcon,
-  PlayArrow as PlayArrowIcon
+  PlayArrow as PlayArrowIcon,
+  AccessTime as AccessTimeIcon 
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import { deleteJob, pauseJob, resumeJob } from '../services/jobService';
@@ -57,8 +59,11 @@ const formatTimeWithTimezone = (timeString, timezone) => {
   if (!timeString) return 'Not scheduled';
   
   try {
+    // Parse the ISO date string
     const date = new Date(timeString);
-    return `${format(date, 'PPpp')} (${timezone})`;
+    
+    // Format the date in the specific timezone using date-fns-tz
+    return formatInTimeZone(date, timezone, "MMM d, yyyy 'at' h:mm a 'in' zzz");
   } catch (e) {
     console.error('Error formatting date:', e);
     return timeString;
@@ -77,7 +82,7 @@ const getScheduleDescription = (job) => {
       return 'Immediate execution';
     case 'ONE_TIME':
       return job.startTime
-        ? `One time at ${format(new Date(job.startTime), 'PPpp')} (${job.timeZone})`
+        ? `One time at ${formatInTimeZone(new Date(job.startTime), job.timeZone, "MMM d, yyyy 'at' h:mm a")}`
         : 'One time';
     case 'RECURRING':
       // Extract time information from the cron expression if available
@@ -111,20 +116,20 @@ const getScheduleDescription = (job) => {
               };
               return dayMap[dayNum] || dayNum;
             }).join(', ');
-            return `Recurring weekly on ${dayNames} ${timeStr} (${job.timeZone})`;
+            return `Recurring weekly on ${dayNames} ${timeStr}`;
           } else if (cronParts[3] !== '?' && cronParts[3] !== '*') {
             // Monthly pattern
-            return `Recurring monthly on date(s) ${cronParts[3]} ${timeStr} (${job.timeZone})`;
+            return `Recurring monthly on date(s) ${cronParts[3]} ${timeStr}`;
           } else {
             // Daily pattern
-            return `Recurring daily ${timeStr} (${job.timeZone})`;
+            return `Recurring daily ${timeStr}`;
           }
         }
-        return `Recurring (${job.cronExpression}) (${job.timeZone})`;
+        return `Recurring (${job.cronExpression})`;
       }
-      return `Recurring (${job.timeZone})`;
+      return `Recurring`;
     default:
-      return `${job.scheduleType} (${job.timeZone})`;
+      return `${job.scheduleType}`;
   }
 };
 
@@ -264,6 +269,7 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
               <TableCell>Client ID</TableCell>
               <TableCell>Schedule</TableCell>
               <TableCell>Next Run</TableCell>
+              <TableCell>Timezone</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Actions</TableCell>
             </TableRow>
@@ -277,8 +283,18 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
                   {job.nextFireTime 
                     ? formatTimeWithTimezone(job.nextFireTime, job.timeZone)
                     : job.scheduleType === 'RECURRING' 
-                      ? `Next run based on: ${job.cronExpression} (${job.timeZone})`
+                      ? `Based on cron: ${job.cronExpression}`
                       : 'Not scheduled'}
+                </TableCell>
+                <TableCell>
+                  <Tooltip title="All times are specific to this timezone">
+                    <Chip 
+                      icon={<AccessTimeIcon />} 
+                      label={job.timeZone} 
+                      variant="outlined" 
+                      size="small"
+                    />
+                  </Tooltip>
                 </TableCell>
                 <TableCell>
                   <Chip

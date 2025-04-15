@@ -23,41 +23,28 @@ services:
     networks:
       - app-network
 
-  # Zookeeper (required by Kafka)
-  zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-      - zookeeper-logs:/var/lib/zookeeper/log
-    healthcheck:
-      test: echo stat | nc localhost 2181
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - app-network
-
-  # Kafka
+  # Kafka with KRaft mode (no Zookeeper)
   kafka:
-    image: confluentinc/cp-kafka:latest
-    depends_on:
-      - zookeeper
+    image: bitnami/kafka:latest
     ports:
       - "9092:9092"
+      - "9093:9093"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - ALLOW_PLAINTEXT_LISTENER=yes
     volumes:
-      - kafka-data:/var/lib/kafka/data
+      - kafka-data:/bitnami/kafka
     healthcheck:
-      test: kafka-topics --bootstrap-server kafka:9092 --list
+      test: kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1
       interval: 30s
       timeout: 10s
       retries: 5
@@ -77,11 +64,13 @@ services:
     ports:
       - "8080:8080"
     environment:
+      - TZ=Asia/Kolkata
+      - JAVA_OPTS=-Xmx512m -Xms256m -Duser.timezone=Asia/Kolkata
       - SPRING_DATASOURCE_URL=jdbc:postgresql://yugabytedb:5433/yugabyte
       - SPRING_DATASOURCE_USERNAME=yugabyte
       - SPRING_DATASOURCE_PASSWORD=yugabyte
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - JAVA_OPTS=-Xmx512m -Xms256m
+      # - JAVA_OPTS=-Xmx512m -Xms256m
     networks:
       - app-network
     healthcheck:
@@ -97,6 +86,8 @@ services:
       context: ./frontend
     ports:
       - "3000:80"
+    environment:
+      - TZ=Asia/Kolkata
     depends_on:
       - backend
     networks:
@@ -110,8 +101,6 @@ services:
 # Volumes for persistent data
 volumes:
   yugabyte-data:
-  zookeeper-data:
-  zookeeper-logs:
   kafka-data:
 
 # Networks

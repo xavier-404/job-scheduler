@@ -2,12 +2,15 @@ package com.example.jobscheduler.service;
 
 import com.example.jobscheduler.dto.JobRequest;
 import com.example.jobscheduler.dto.JobResponse;
+import com.example.jobscheduler.exception.InvalidTimeZoneException;
+import com.example.jobscheduler.exception.PastScheduleTimeException;
 import com.example.jobscheduler.job.UserDataJob;
 import com.example.jobscheduler.model.Job;
 import com.example.jobscheduler.repository.JobRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.quartz.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,9 +20,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.Date;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -27,29 +28,55 @@ import java.util.stream.Collectors;
  * Handles the creation, retrieval, updating, and deletion of jobs.
  * Also manages the scheduling of jobs using Quartz Scheduler.
  */
-@Service // Marks this class as a Spring service component.
-@Slf4j // Lombok annotation to enable logging in this class.
-@RequiredArgsConstructor // Lombok annotation to generate a constructor for all final fields.
+@Service
+@Slf4j
+@RequiredArgsConstructor
 public class JobSchedulerService {
 
-    private final JobRepository jobRepository; // Repository for interacting with the Job database.
-    private final Scheduler scheduler; // Quartz Scheduler for managing job scheduling.
+    // Define "Asia/Kolkata" as the default timezone for the entire application
+    public static final String DEFAULT_TIMEZONE = "Asia/Kolkata";
+
+    private final JobRepository jobRepository;
+    private final Scheduler scheduler;
+
+    // Set of valid timezones, initialized in postConstruct
+    private Set<String> validTimeZones;
+
+    /**
+     * Initialize valid timezones after dependency injection is complete.
+     */
+    @Autowired
+    public void initialize() {
+        this.validTimeZones = ZoneId.getAvailableZoneIds();
+        log.info("Initialized JobSchedulerService with {} available timezones. Default timezone: {}",
+                validTimeZones.size(), DEFAULT_TIMEZONE);
+    }
 
     /**
      * Creates a new job based on the job request.
-     * Validates the job request, persists it to the database, and schedules it with Quartz.
+     * Validates the job request, persists it to the database, and schedules it with
+     * Quartz.
      *
      * @param jobRequest the job request with scheduling details
      * @return the created job response
+     * @throws InvalidTimeZoneException  if the provided timezone is invalid
+     * @throws PastScheduleTimeException if the scheduled time is in the past
      */
     @Transactional
     public JobResponse createJob(JobRequest jobRequest) {
-        log.info("Creating job for clientId: {}", jobRequest.getClientId());
+        String clientId = jobRequest.getClientId();
+        log.info("Creating job for clientId: {}", clientId);
 
-        // Create a new Job entity from the request.
-        Job job = createJobEntity(jobRequest);
+        // Validate the timezone
+        String timeZone = validateTimeZone(jobRequest.getTimeZone());
 
-        // Validate the cron expression for RECURRING jobs.
+        // Create a new Job entity from the request
+        Job job = createJobEntity(jobRequest, timeZone);
+
+        // Validate the job timing is not in the past
+        validateJobTiming(job);
+
+        // Validate the cron expression for RECURRING jobs
         if (job.getScheduleType() == Job.ScheduleType.RECURRING && job.getCronExpression() != null) {
             try {
                 CronExpression.validateExpression(job.getCronExpression());
@@ -60,48 +87,108 @@ public class JobSchedulerService {
             }
         }
 
-        // Save the job to the database to generate an ID.
+        // Save the job to the database to generate an ID
         final Job savedJob = jobRepository.save(job);
         final UUID jobId = savedJob.getId();
-        final String clientId = savedJob.getClientId();
 
-        // Schedule the job after the transaction commits to avoid race conditions.
+        // Schedule the job after the transaction commits to avoid race conditions
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 try {
                     log.info("Transaction committed. Scheduling job {} for clientId {}", jobId, clientId);
 
-                    // Fetch the latest version of the job from the database.
+                    // Fetch the latest version of the job from the database
                     Job jobToSchedule = jobRepository.findById(jobId)
                             .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
 
-                    // Schedule the job with Quartz.
+                    // Schedule the job with Quartz
                     Trigger trigger = scheduleJobWithQuartz(jobToSchedule);
 
-                    // Update the next fire time after scheduling.
+                    // Update the next fire time after scheduling
                     if (trigger.getNextFireTime() != null) {
-                        LocalDateTime nextFireTime = LocalDateTime.ofInstant(
-                                trigger.getNextFireTime().toInstant(),
-                                ZoneId.of(jobToSchedule.getTimeZone()));
+                        // Always convert to the job's timezone for display
+                        ZonedDateTime nextFireZdt = trigger.getNextFireTime().toInstant()
+                                .atZone(ZoneId.of(jobToSchedule.getTimeZone()));
+                        LocalDateTime nextFireTime = nextFireZdt.toLocalDateTime();
 
                         log.info("Job {} scheduled. Next fire time: {} ({})",
                                 jobId, nextFireTime, jobToSchedule.getTimeZone());
 
-                        // Update the job's next fire time in a new transaction.
+                        // Update the job's next fire time in a new transaction
                         updateJobNextFireTime(jobId, nextFireTime);
                     } else {
                         log.warn("No next fire time calculated for job {}", jobId);
                     }
                 } catch (Exception e) {
                     log.error("Error scheduling job {}: {}", jobId, e.getMessage(), e);
-                    // Mark the job as failed in a new transaction.
+                    // Mark the job as failed in a new transaction
                     updateJobStatus(jobId, Job.JobStatus.COMPLETED_FAILURE);
                 }
             }
         });
 
-        return JobResponse.fromEntity(savedJob); // Return the created job as a response.
+        return JobResponse.fromEntity(savedJob);
+    }
+
+    /**
+     * Validates that the provided timezone is valid.
+     * 
+     * @param timeZone the timezone to validate
+     * @return the validated timezone
+     * @throws InvalidTimeZoneException if the timezone is invalid
+     */
+    private String validateTimeZone(String timeZone) {
+        if (timeZone == null || timeZone.trim().isEmpty()) {
+            log.info("No timezone provided, defaulting to {}", DEFAULT_TIMEZONE);
+            return DEFAULT_TIMEZONE;
+        }
+
+        if (validTimeZones == null) {
+            // Initialize timezones if they haven't been initialized yet
+            validTimeZones = ZoneId.getAvailableZoneIds();
+        }
+
+        if (!validTimeZones.contains(timeZone)) {
+            log.error("Invalid timezone provided: {}", timeZone);
+            throw new InvalidTimeZoneException("Invalid timezone: " + timeZone);
+        }
+
+        return timeZone;
+    }
+
+    /**
+     * Validates that the job's scheduled time is not in the past.
+     * 
+     * @param job the job to validate
+     * @throws PastScheduleTimeException if the scheduled time is in the past
+     */
+    private void validateJobTiming(Job job) {
+        if (job.getScheduleType() == Job.ScheduleType.ONE_TIME && job.getStartTime() != null) {
+            // Get the timezone
+            ZoneId zoneId = ZoneId.of(job.getTimeZone());
+
+            // Get current time in the specified timezone
+            ZonedDateTime now = ZonedDateTime.now(zoneId);
+
+            // For clarity, interpret the startTime as if it's in the job's timezone
+            // directly
+            // This simplifies the mental model for users and developers
+            ZonedDateTime jobStartTime = job.getStartTime().atZone(zoneId);
+
+            log.debug("Validating job timing: current time in {} is {}, job scheduled for {}",
+                    job.getTimeZone(), now, jobStartTime);
+
+            if (jobStartTime.isBefore(now)) {
+                log.error("Job scheduled for past time: {} in timezone {}",
+                        jobStartTime, job.getTimeZone());
+
+                throw new PastScheduleTimeException(
+                        "Cannot schedule job in the past. Current time in " +
+                                job.getTimeZone() + " is " + now.toLocalDateTime() +
+                                " but job was scheduled for " + jobStartTime.toLocalDateTime());
+            }
+        }
     }
 
     /**
@@ -110,9 +197,10 @@ public class JobSchedulerService {
      * @return a list of all jobs as JobResponse objects
      */
     public List<JobResponse> getAllJobs() {
-        List<Job> jobs = jobRepository.findAll(); // Fetch all jobs from the database.
+        List<Job> jobs = jobRepository.findAll();
+        log.debug("Retrieved {} jobs from database", jobs.size());
         return jobs.stream()
-                .map(JobResponse::fromEntity) // Convert each Job entity to a JobResponse DTO.
+                .map(JobResponse::fromEntity)
                 .collect(Collectors.toList());
     }
 
@@ -126,7 +214,8 @@ public class JobSchedulerService {
     public JobResponse getJobById(UUID id) {
         Job job = jobRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + id));
-        return JobResponse.fromEntity(job); // Convert the Job entity to a JobResponse DTO.
+        log.debug("Retrieved job with ID: {}, clientId: {}", id, job.getClientId());
+        return JobResponse.fromEntity(job);
     }
 
     /**
@@ -141,16 +230,21 @@ public class JobSchedulerService {
         Job job = jobRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + id));
 
+        log.info("Deleting job with ID: {}, clientId: {}", id, job.getClientId());
+
         try {
-            // Unschedule the job in Quartz.
+            // Unschedule the job in Quartz
             JobKey jobKey = new JobKey(job.getId().toString());
             scheduler.deleteJob(jobKey);
+            log.debug("Job deleted from Quartz scheduler: {}", id);
         } catch (SchedulerException e) {
             log.error("Error deleting job from scheduler: {}", e.getMessage(), e);
+            // Continue with database deletion even if Quartz deletion fails
         }
 
-        // Delete the job from the database.
+        // Delete the job from the database
         jobRepository.delete(job);
+        log.info("Job deleted successfully: {}", id);
     }
 
     /**
@@ -165,8 +259,10 @@ public class JobSchedulerService {
         Job job = jobRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + id));
 
+        log.info("Pausing job with ID: {}, clientId: {}", id, job.getClientId());
+
         try {
-            // Pause the job in Quartz.
+            // Pause the job in Quartz
             JobKey jobKey = new JobKey(job.getId().toString());
             scheduler.pauseJob(jobKey);
             log.info("Job paused: {}", id);
@@ -190,8 +286,10 @@ public class JobSchedulerService {
         Job job = jobRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Job not found: " + id));
 
+        log.info("Resuming job with ID: {}, clientId: {}", id, job.getClientId());
+
         try {
-            // Resume the job in Quartz.
+            // Resume the job in Quartz
             JobKey jobKey = new JobKey(job.getId().toString());
             scheduler.resumeJob(jobKey);
             log.info("Job resumed: {}", id);
@@ -216,7 +314,7 @@ public class JobSchedulerService {
                     .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
             job.setNextFireTime(nextFireTime);
             jobRepository.save(job);
-            log.info("Updated next fire time for job {}: {}", jobId, nextFireTime);
+            log.debug("Updated next fire time for job {}: {}", jobId, nextFireTime);
         } catch (Exception e) {
             log.error("Error updating next fire time for job {}: {}", jobId, e.getMessage(), e);
         }
@@ -235,7 +333,7 @@ public class JobSchedulerService {
                     .orElseThrow(() -> new IllegalArgumentException("Job not found: " + jobId));
             job.setStatus(status);
             jobRepository.save(job);
-            log.info("Updated status for job {}: {}", jobId, status);
+            log.debug("Updated status for job {}: {}", jobId, status);
         } catch (Exception e) {
             log.error("Error updating status for job {}: {}", jobId, e.getMessage(), e);
         }
@@ -245,30 +343,53 @@ public class JobSchedulerService {
      * Creates a new job entity based on the job request.
      *
      * @param jobRequest the job request
+     * @param timeZone   the validated timezone
      * @return the new job entity
      */
-    private Job createJobEntity(JobRequest jobRequest) {
+    // Update the createJobEntity method in JobSchedulerService.java to properly
+    // parse the startTime
+
+    private Job createJobEntity(JobRequest jobRequest, String timeZone) {
         Job job = new Job();
         job.setClientId(jobRequest.getClientId());
         job.setScheduleType(jobRequest.getScheduleType());
         job.setStatus(Job.JobStatus.SCHEDULED);
+        job.setTimeZone(timeZone);
 
-        // Use the timezone provided by the user, with UTC as fallback.
-        job.setTimeZone(jobRequest.getTimeZone() != null && !jobRequest.getTimeZone().isEmpty()
-                ? jobRequest.getTimeZone()
-                : "UTC");
+        ZoneId zoneId = ZoneId.of(timeZone);
 
-        // Set start time and cron expression based on schedule type.
+        // Set start time and cron expression based on schedule type
         switch (jobRequest.getScheduleType()) {
             case IMMEDIATE:
-                job.setStartTime(LocalDateTime.now());
+                // For immediate jobs, use the current time in the specified timezone
+                job.setStartTime(LocalDateTime.now(zoneId));
                 break;
+
             case ONE_TIME:
-                job.setStartTime(jobRequest.getStartTime());
-                job.setNextFireTime(jobRequest.getStartTime());
+                // For one-time jobs, ensure the start time is properly processed
+                if (jobRequest.getStartTime() != null) {
+                    // The startTime should be interpreted directly in the job's timezone
+                    // No additional conversion needed
+                    LocalDateTime startTime = jobRequest.getStartTime();
+                    log.info("Setting ONE_TIME job startTime: {} in timezone: {}",
+                            startTime, timeZone);
+
+                    job.setStartTime(startTime);
+                    job.setNextFireTime(startTime);
+                } else {
+                    // Fallback to current time + 1 hour if no start time is provided
+                    LocalDateTime defaultTime = LocalDateTime.now(zoneId).plusHours(1);
+                    log.warn("No start time provided for ONE_TIME job, using default: {} in timezone: {}",
+                            defaultTime, timeZone);
+
+                    job.setStartTime(defaultTime);
+                    job.setNextFireTime(defaultTime);
+                }
                 break;
+
             case RECURRING:
-                job.setStartTime(LocalDateTime.now());
+                // For recurring jobs, use the current time in the specified timezone
+                job.setStartTime(LocalDateTime.now(zoneId));
                 job.setCronExpression(determineCronExpression(jobRequest));
                 break;
         }
@@ -283,21 +404,21 @@ public class JobSchedulerService {
      * @return the cron expression
      */
     private String determineCronExpression(JobRequest jobRequest) {
-        // If cron expression is provided directly, use it.
+        // If cron expression is provided directly, use it
         if (jobRequest.getCronExpression() != null && !jobRequest.getCronExpression().isEmpty()) {
             return jobRequest.getCronExpression();
         }
 
-        // Get time components or use defaults.
+        // Get time components or use defaults
         int hour = jobRequest.getRecurringTimeHour() != null ? jobRequest.getRecurringTimeHour() : 0;
         int minute = jobRequest.getRecurringTimeMinute() != null ? jobRequest.getRecurringTimeMinute() : 0;
 
-        // HOURLY: Run every X hours.
+        // HOURLY: Run every X hours
         if (jobRequest.getHourlyInterval() != null) {
             return String.format("0 %d 0/%d * * ?", minute, jobRequest.getHourlyInterval());
         }
 
-        // WEEKLY: Run on specific days of the week.
+        // WEEKLY: Run on specific days of the week
         if (jobRequest.getDaysOfWeek() != null && !jobRequest.getDaysOfWeek().isEmpty()) {
             String daysOfWeek = jobRequest.getDaysOfWeek().stream()
                     .map(Object::toString)
@@ -305,7 +426,7 @@ public class JobSchedulerService {
             return String.format("0 %d %d ? * %s", minute, hour, daysOfWeek);
         }
 
-        // MONTHLY: Run on specific days of the month.
+        // MONTHLY: Run on specific days of the month
         if (jobRequest.getDaysOfMonth() != null && !jobRequest.getDaysOfMonth().isEmpty()) {
             String daysOfMonth = jobRequest.getDaysOfMonth().stream()
                     .map(Object::toString)
@@ -313,8 +434,8 @@ public class JobSchedulerService {
             return String.format("0 %d %d %s * ?", minute, hour, daysOfMonth);
         }
 
-        // Default: Run every hour at the specified minute.
-        return String.format("0 %d * * * ?", minute);
+        // Default: Run daily at the specified hour and minute
+        return String.format("0 %d %d * * ?", minute, hour);
     }
 
     /**
@@ -325,7 +446,7 @@ public class JobSchedulerService {
      * @throws SchedulerException if an error occurs during scheduling
      */
     private Trigger scheduleJobWithQuartz(Job job) throws SchedulerException {
-        // Create job detail with all necessary job data.
+        // Create job detail with all necessary job data
         JobDetail jobDetail = JobBuilder.newJob(UserDataJob.class)
                 .withIdentity(job.getId().toString())
                 .usingJobData("jobId", job.getId().toString())
@@ -333,7 +454,7 @@ public class JobSchedulerService {
                 .usingJobData("timeZone", job.getTimeZone())
                 .build();
 
-        // Create trigger based on schedule type.
+        // Create trigger based on schedule type
         Trigger trigger;
         ZoneId zoneId = ZoneId.of(job.getTimeZone());
 
@@ -346,6 +467,8 @@ public class JobSchedulerService {
                 break;
 
             case ONE_TIME:
+                // Convert the LocalDateTime directly to a ZonedDateTime in the specified
+                // timezone
                 ZonedDateTime zonedDateTime = job.getStartTime().atZone(zoneId);
                 Date startDate = Date.from(zonedDateTime.toInstant());
 
@@ -370,8 +493,10 @@ public class JobSchedulerService {
                 throw new IllegalArgumentException("Unsupported schedule type: " + job.getScheduleType());
         }
 
-        // Schedule the job with Quartz.
+        // Schedule the job with Quartz
         scheduler.scheduleJob(jobDetail, trigger);
+        log.debug("Job scheduled with Quartz: ID={}, timeZone={}, type={}",
+                job.getId(), job.getTimeZone(), job.getScheduleType());
 
         return trigger;
     }

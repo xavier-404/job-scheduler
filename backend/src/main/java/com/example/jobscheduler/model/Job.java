@@ -16,48 +16,48 @@ import java.util.UUID;
  * Entity representing a scheduled job in the system.
  * A job fetches user data for a specific clientId and publishes it to Kafka.
  */
-@Entity // Marks this class as a JPA entity mapped to a database table.
-@Table(name = "jobs") // Specifies the table name in the database.
-@Data // Lombok annotation to generate getters, setters, toString, equals, and hashCode methods.
-@Builder // Lombok annotation to implement the builder pattern for this class.
-@NoArgsConstructor // Lombok annotation to generate a no-argument constructor.
-@AllArgsConstructor // Lombok annotation to generate an all-argument constructor.
+@Entity
+@Table(name = "jobs")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Job {
 
-    @Id // Marks this field as the primary key of the entity.
-    @GeneratedValue(strategy = GenerationType.AUTO) // Specifies that the ID will be generated automatically.
-    private UUID id; // Unique identifier for the job.
+    @Id
+    @GeneratedValue(strategy = GenerationType.AUTO)
+    private UUID id;
 
-    @Column(name = "client_id", nullable = false) // Maps this field to the "client_id" column in the database. It cannot be null.
-    private String clientId; // Identifier for the client associated with the job.
+    @Column(name = "client_id", nullable = false)
+    private String clientId;
 
-    @Enumerated(EnumType.STRING) // Specifies that the enum value will be stored as a string in the database.
-    @Column(name = "schedule_type", nullable = false) // Maps this field to the "schedule_type" column in the database. It cannot be null.
-    private ScheduleType scheduleType; // Type of schedule for the job (e.g., IMMEDIATE, ONE_TIME, RECURRING).
+    @Enumerated(EnumType.STRING)
+    @Column(name = "schedule_type", nullable = false)
+    private ScheduleType scheduleType;
 
-    @Column(name = "cron_expression") // Maps this field to the "cron_expression" column in the database.
-    private String cronExpression; // Cron expression defining the schedule for recurring jobs.
+    @Column(name = "cron_expression")
+    private String cronExpression;
 
-    @Column(name = "time_zone", nullable = false) // Maps this field to the "time_zone" column in the database. It cannot be null.
-    private String timeZone = ZoneId.systemDefault().getId(); // Time zone for the job. Defaults to the system's time zone.
+    @Column(name = "time_zone", nullable = false)
+    private String timeZone = ZoneId.systemDefault().getId();
 
-    @Column(name = "start_time") // Maps this field to the "start_time" column in the database.
-    private LocalDateTime startTime; // Start time for the job.
+    @Column(name = "start_time")
+    private LocalDateTime startTime;
 
-    @Column(name = "next_fire_time") // Maps this field to the "next_fire_time" column in the database.
-    private LocalDateTime nextFireTime; // The next scheduled execution time for the job.
+    @Column(name = "next_fire_time")
+    private LocalDateTime nextFireTime;
 
-    @Enumerated(EnumType.STRING) // Specifies that the enum value will be stored as a string in the database.
-    @Column(nullable = false) // Maps this field to a database column. It cannot be null.
-    private JobStatus status; // Current status of the job (e.g., SCHEDULED, RUNNING, COMPLETED_SUCCESS, COMPLETED_FAILURE).
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private JobStatus status;
 
-    @CreationTimestamp // Automatically sets the timestamp when the entity is created.
-    @Column(name = "created_at", updatable = false) // Maps this field to the "created_at" column. It cannot be updated after creation.
-    private LocalDateTime createdAt; // Timestamp of when the job was created.
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
 
-    @UpdateTimestamp // Automatically updates the timestamp when the entity is updated.
-    @Column(name = "updated_at") // Maps this field to the "updated_at" column.
-    private LocalDateTime updatedAt; // Timestamp of the last update to the job.
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 
     /**
      * Types of job schedules.
@@ -73,12 +73,14 @@ public class Job {
 
     /**
      * Possible job statuses.
+     * SCHEDULING: The job is in the process of being scheduled.
      * SCHEDULED: The job is scheduled but not yet running.
      * RUNNING: The job is currently being executed.
      * COMPLETED_SUCCESS: The job completed successfully.
      * COMPLETED_FAILURE: The job completed but failed.
      */
     public enum JobStatus {
+        SCHEDULING,
         SCHEDULED,
         RUNNING,
         COMPLETED_SUCCESS,
