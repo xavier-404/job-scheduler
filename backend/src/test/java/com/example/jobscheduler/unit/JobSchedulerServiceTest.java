@@ -1,5 +1,3 @@
-// Save as: backend/src/test/java/com/example/jobscheduler/unit/JobSchedulerServiceTest.java
-
 package com.example.jobscheduler.unit;
 
 import com.example.jobscheduler.dto.JobRequest;
@@ -19,9 +17,6 @@ import org.quartz.*;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.mockito.MockedStatic;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.support.TransactionSynchronization;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -59,12 +54,7 @@ public class JobSchedulerServiceTest {
 
         Set<String> validTimeZones = new HashSet<>(ZoneId.getAvailableZoneIds());
         ReflectionTestUtils.setField(jobSchedulerService, "validTimeZones", validTimeZones);
-
-        // Remove this from setup
-        // when(jobRepository.save(any(Job.class))).thenReturn(mockJob);
     }
-
-    // Modify the JobSchedulerServiceTest.java file
 
     @Test
     void shouldCreateOneTimeJob() throws SchedulerException {
@@ -78,34 +68,36 @@ public class JobSchedulerServiceTest {
                 .startTime(LocalDateTime.now().plusHours(1))
                 .build();
 
-        // IMPORTANT: Mock TransactionSynchronizationManager
-        MockedStatic<TransactionSynchronizationManager> mockedStatic = Mockito
-                .mockStatic(TransactionSynchronizationManager.class);
+        // Mock the trigger and scheduler
+        Trigger mockTrigger = mock(Trigger.class);
+        when(mockTrigger.getNextFireTime()).thenReturn(new Date());
+        when(scheduler.scheduleJob(any(JobDetail.class), any(Trigger.class))).thenReturn(new Date());
 
-        try {
+        // IMPORTANT: Use doAnswer instead of MockedStatic for better control
+        doAnswer(invocation -> {
+            // Get the TransactionSynchronization that was registered
+            TransactionSynchronization sync = invocation.getArgument(0);
+            // Execute afterCommit directly
+            sync.afterCommit();
+            return null;
+        }).when(jobRepository).findById(any(UUID.class));
+
+        // When - Use try-with-resources for MockedStatic
+        try (MockedStatic<TransactionSynchronizationManager> mockedStatic = Mockito.mockStatic(TransactionSynchronizationManager.class)) {
             // Make it appear that transaction synchronization is active
             mockedStatic.when(TransactionSynchronizationManager::isSynchronizationActive).thenReturn(true);
-
-            // Capture the TransactionSynchronization that gets registered
-            mockedStatic
-                    .when(() -> TransactionSynchronizationManager
-                            .registerSynchronization(any(TransactionSynchronization.class)))
+            
+            // Capture the registerSynchronization call
+            mockedStatic.when(() -> TransactionSynchronizationManager.registerSynchronization(any(TransactionSynchronization.class)))
                     .thenAnswer(invocation -> {
                         // Get the synchronization object
                         TransactionSynchronization sync = invocation.getArgument(0);
-
                         // Execute the afterCommit method directly
                         sync.afterCommit();
-
                         return null;
                     });
-
-            // Mock the trigger
-            Trigger mockTrigger = mock(Trigger.class);
-            when(mockTrigger.getNextFireTime()).thenReturn(new Date());
-            when(scheduler.scheduleJob(any(JobDetail.class), any(Trigger.class))).thenReturn(new Date());
-
-            // When
+            
+            // Execute the method under test
             JobResponse response = jobSchedulerService.createJob(jobRequest);
 
             // Then
@@ -117,9 +109,6 @@ public class JobSchedulerServiceTest {
             // Verify
             verify(jobRepository).save(any(Job.class));
             verify(scheduler).scheduleJob(any(JobDetail.class), any(Trigger.class));
-        } finally {
-            // Always close the mocked static
-            mockedStatic.close();
         }
     }
 
@@ -127,6 +116,7 @@ public class JobSchedulerServiceTest {
     void shouldCreateRecurringJob() throws SchedulerException {
         // Given
         when(jobRepository.save(any(Job.class))).thenReturn(mockJob);
+        when(jobRepository.findById(any(UUID.class))).thenReturn(Optional.of(mockJob));
 
         JobRequest jobRequest = JobRequest.builder()
                 .clientId("TEST_CLIENT")
@@ -137,34 +127,25 @@ public class JobSchedulerServiceTest {
                 .recurringTimeMinute(0)
                 .build();
 
-        // IMPORTANT: Mock TransactionSynchronizationManager
-        MockedStatic<TransactionSynchronizationManager> mockedStatic = Mockito
-                .mockStatic(TransactionSynchronizationManager.class);
+        // Mock the trigger
+        Trigger mockTrigger = mock(Trigger.class);
+        when(mockTrigger.getNextFireTime()).thenReturn(new Date());
+        when(scheduler.scheduleJob(any(JobDetail.class), any(Trigger.class))).thenReturn(new Date());
 
-        try {
+        // When - Use try-with-resources for MockedStatic
+        try (MockedStatic<TransactionSynchronizationManager> mockedStatic = Mockito.mockStatic(TransactionSynchronizationManager.class)) {
             // Make it appear that transaction synchronization is active
             mockedStatic.when(TransactionSynchronizationManager::isSynchronizationActive).thenReturn(true);
-
-            // Capture the TransactionSynchronization that gets registered
-            mockedStatic
-                    .when(() -> TransactionSynchronizationManager
-                            .registerSynchronization(any(TransactionSynchronization.class)))
+            
+            // Capture the registerSynchronization call and execute afterCommit directly
+            mockedStatic.when(() -> TransactionSynchronizationManager.registerSynchronization(any(TransactionSynchronization.class)))
                     .thenAnswer(invocation -> {
-                        // Get the synchronization object
                         TransactionSynchronization sync = invocation.getArgument(0);
-
-                        // Execute the afterCommit method directly
                         sync.afterCommit();
-
                         return null;
                     });
-
-            // Mock the trigger
-            Trigger mockTrigger = mock(Trigger.class);
-            when(mockTrigger.getNextFireTime()).thenReturn(new Date());
-            when(scheduler.scheduleJob(any(JobDetail.class), any(Trigger.class))).thenReturn(new Date());
-
-            // When
+            
+            // Execute the method under test
             JobResponse response = jobSchedulerService.createJob(jobRequest);
 
             // Then
@@ -176,9 +157,6 @@ public class JobSchedulerServiceTest {
             // Verify
             verify(jobRepository).save(any(Job.class));
             verify(scheduler).scheduleJob(any(JobDetail.class), any(Trigger.class));
-        } finally {
-            // Always close the mocked static
-            mockedStatic.close();
         }
     }
 

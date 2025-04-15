@@ -1,5 +1,3 @@
-// Save as: src/test/java/com/example/jobscheduler/JobSchedulerApplicationTests.java
-
 package com.example.jobscheduler;
 
 import org.junit.jupiter.api.Test;
@@ -9,11 +7,11 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.quartz.Scheduler;
 
-@SpringBootTest(classes = JobSchedulerApplication.class)
+@SpringBootTest
 @ActiveProfiles("test")
 class JobSchedulerApplicationTests {
 
-    // Mock the main dependencies that are causing context loading issues
+    // Mock all external dependencies that might cause context loading issues
     @MockBean
     private Scheduler scheduler;
     
@@ -22,6 +20,6 @@ class JobSchedulerApplicationTests {
 
     @Test
     void contextLoads() {
-        // This test will just verify the Spring context loads successfully
+        // This test will simply verify the Spring context loads successfully
     }
 }
