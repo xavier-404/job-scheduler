@@ -17,6 +17,21 @@ export const fetchJobs = async () => {
 };
 
 /**
+ * Fetches a single job by its ID.
+ * @param {string} id - The ID of the job to fetch
+ * @returns {Promise<Object>} A promise that resolves to the job data
+ */
+export const getJobById = async (id) => {
+  try {
+    const response = await axios.get(`${API_URL}/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching job ${id}:`, error);
+    throw error;
+  }
+};
+
+/**
  * Creates a new job.
  * @param {Object} jobData - The job data to create
  * @returns {Promise<Object>} A promise that resolves to the created job

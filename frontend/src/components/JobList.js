@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -22,10 +22,12 @@ import {
   Delete as DeleteIcon,
   Pause as PauseIcon,
   PlayArrow as PlayArrowIcon,
-  AccessTime as AccessTimeIcon
+  AccessTime as AccessTimeIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import { deleteJob, pauseJob, resumeJob } from '../services/jobService';
+import JobDetails from './JobDetails';
 
 /**
  * Returns a color based on the job status.
@@ -175,9 +177,11 @@ const getScheduleDescription = (job) => {
  * @param {Function} props.onRefresh - Callback function to refresh the job list
  */
 const JobList = ({ jobs, loading, error, onRefresh }) => {
-  const [deleteLoading, setDeleteLoading] = React.useState(null);
-  const [actionLoading, setActionLoading] = React.useState(null);
-  const [showTimezoneInfo, setShowTimezoneInfo] = React.useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [showTimezoneInfo, setShowTimezoneInfo] = useState(false);
+  const [selectedJobId, setSelectedJobId] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   /**
    * Handles job deletion.
@@ -235,6 +239,24 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  /**
+   * Opens the job details dialog for a specific job.
+   * 
+   * @param {string} id - The job ID
+   */
+  const handleViewDetails = (id) => {
+    setSelectedJobId(id);
+    setDetailsOpen(true);
+  };
+
+  /**
+   * Closes the job details dialog.
+   */
+  const handleCloseDetails = () => {
+    setDetailsOpen(false);
+    // Don't reset selectedJobId immediately to prevent UI flicker
   };
 
   // If there's an error, display it
@@ -359,6 +381,13 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
                   ) : (
                     <>
                       <IconButton
+                        color="info"
+                        onClick={() => handleViewDetails(job.id)}
+                        title="View Details"
+                      >
+                        <InfoIcon />
+                      </IconButton>
+                      <IconButton
                         color="default"
                         onClick={() => handlePause(job.id)}
                         title="Pause Job"
@@ -391,6 +420,13 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Job Details Dialog */}
+      <JobDetails
+        open={detailsOpen}
+        onClose={handleCloseDetails}
+        jobId={selectedJobId}
+      />
     </>
   );
 };

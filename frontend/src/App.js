@@ -1,32 +1,63 @@
-import React, { useState, useEffect } from 'react';
-import { Container, Typography, Box, CssBaseline, Paper, AppBar, Toolbar } from '@mui/material';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Container, 
+  Typography, 
+  Box, 
+  CssBaseline, 
+  Paper, 
+  AppBar, 
+  Toolbar,
+  Switch,
+  FormControlLabel,
+  IconButton,
+  useMediaQuery
+} from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { ToastContainer, toast } from 'react-toastify';
+import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Brightness7Icon from '@mui/icons-material/Brightness7';
 import 'react-toastify/dist/ReactToastify.css';
 
 import JobForm from './components/JobForm';
 import JobList from './components/JobList';
 import { fetchJobs } from './services/jobService';
 
-// Create a theme
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-});
-
 /**
  * Main application component.
  */
 function App() {
+  // Check if user prefers dark mode
+  const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
+  
+  // Initialize state from localStorage or system preference
+  const [darkMode, setDarkMode] = useState(() => {
+    const savedMode = localStorage.getItem('darkMode');
+    return savedMode !== null ? JSON.parse(savedMode) : prefersDarkMode;
+  });
+  
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Create a theme instance based on the dark mode preference
+  const theme = useMemo(() => 
+    createTheme({
+      palette: {
+        mode: darkMode ? 'dark' : 'light',
+        primary: {
+          main: '#1976d2',
+        },
+        secondary: {
+          main: darkMode ? '#f48fb1' : '#dc004e',
+        },
+        background: {
+          default: darkMode ? '#303030' : '#f5f5f5',
+          paper: darkMode ? '#424242' : '#fff',
+        },
+      },
+    }),
+    [darkMode]
+  );
 
   // Load jobs when the component mounts
   useEffect(() => {
@@ -40,6 +71,11 @@ function App() {
     // Clean up the interval when the component unmounts
     return () => clearInterval(intervalId);
   }, []);
+
+  // Save dark mode preference to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
 
   /**
    * Loads jobs from the API.
@@ -73,16 +109,45 @@ function App() {
     loadJobs();
   };
 
+  /**
+   * Toggles between light and dark mode.
+   */
+  const handleToggleDarkMode = () => {
+    setDarkMode(prevMode => !prevMode);
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <ToastContainer position="top-right" autoClose={5000} />
+      <ToastContainer 
+        position="top-right" 
+        autoClose={5000}
+        theme={darkMode ? 'dark' : 'light'} 
+      />
       
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Job Scheduler
           </Typography>
+          <IconButton 
+            color="inherit" 
+            onClick={handleToggleDarkMode}
+            sx={{ mr: 1 }}
+            aria-label="toggle theme"
+          >
+            {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
+          </IconButton>
+          <FormControlLabel
+            control={
+              <Switch 
+                checked={darkMode} 
+                onChange={handleToggleDarkMode} 
+                color="default" 
+              />
+            }
+            label={darkMode ? "Dark" : "Light"}
+          />
         </Toolbar>
       </AppBar>
       
