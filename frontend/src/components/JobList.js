@@ -63,10 +63,27 @@ const formatTimeWithTimezone = (timeString, timezone) => {
     const date = new Date(timeString);
     
     // Format the date in the specific timezone using date-fns-tz
-    return formatInTimeZone(date, timezone, "MMM d, yyyy 'at' h:mm a 'in' zzz");
+    // Make sure the timezone is explicitly displayed
+    return formatInTimeZone(date, timezone, "MMM d, yyyy 'at' h:mm a '('zzz')'");
   } catch (e) {
     console.error('Error formatting date:', e);
     return timeString;
+  }
+};
+
+/**
+ * Gets the current time in the specified timezone.
+ * 
+ * @param {string} timezone - The timezone
+ * @returns {string} The current time in the specified timezone
+ */
+const getCurrentTimeInTimezone = (timezone) => {
+  try {
+    const now = new Date();
+    return formatInTimeZone(now, timezone, "MMM d, yyyy 'at' h:mm a '('zzz')'");
+  } catch (e) {
+    console.error('Error getting current time in timezone:', e);
+    return 'Invalid timezone';
   }
 };
 
@@ -145,6 +162,7 @@ const getScheduleDescription = (job) => {
 const JobList = ({ jobs, loading, error, onRefresh }) => {
   const [deleteLoading, setDeleteLoading] = React.useState(null);
   const [actionLoading, setActionLoading] = React.useState(null);
+  const [showTimezoneInfo, setShowTimezoneInfo] = React.useState(false);
 
   /**
    * Handles job deletion.
@@ -295,6 +313,23 @@ const JobList = ({ jobs, loading, error, onRefresh }) => {
                       size="small"
                     />
                   </Tooltip>
+                  {showTimezoneInfo && (
+                    <Alert
+                      severity="info"
+                      icon={<AccessTimeIcon />}
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() => setShowTimezoneInfo(!showTimezoneInfo)}
+                        >
+                          {showTimezoneInfo ? 'Hide Info' : 'More Info'}
+                        </Button>
+                      }
+                    >
+                      Current time in selected timezone: <strong>{getCurrentTimeInTimezone(job.timeZone)}</strong>
+                    </Alert>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Chip

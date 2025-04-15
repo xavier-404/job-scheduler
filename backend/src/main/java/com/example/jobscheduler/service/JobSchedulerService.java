@@ -157,29 +157,29 @@ public class JobSchedulerService {
         return timeZone;
     }
 
-    /**
-     * Validates that the job's scheduled time is not in the past.
-     * 
-     * @param job the job to validate
-     * @throws PastScheduleTimeException if the scheduled time is in the past
-     */
-    private void validateJobTiming(Job job) {
-        if (job.getScheduleType() == Job.ScheduleType.ONE_TIME && job.getStartTime() != null) {
-            // Get the timezone
-            ZoneId zoneId = ZoneId.of(job.getTimeZone());
+   /**
+ * Validates that the job's scheduled time is not in the past.
+ * 
+ * @param job the job to validate
+ * @throws PastScheduleTimeException if the scheduled time is in the past
+ */
+private void validateJobTiming(Job job) {
+    if (job.getScheduleType() == Job.ScheduleType.ONE_TIME && job.getStartTime() != null) {
+        // Get the timezone
+        ZoneId zoneId = ZoneId.of(job.getTimeZone());
 
-            // Get current time in the specified timezone
-            ZonedDateTime now = ZonedDateTime.now(zoneId);
+        // Get current time in the specified timezone
+        ZonedDateTime now = ZonedDateTime.now(zoneId);
 
-            // For clarity, interpret the startTime as if it's in the job's timezone
-            // directly
-            // This simplifies the mental model for users and developers
-            ZonedDateTime jobStartTime = job.getStartTime().atZone(zoneId);
+        // For clarity, interpret the startTime as if it's in the job's timezone directly
+        ZonedDateTime jobStartTime = job.getStartTime().atZone(zoneId);
 
-            log.debug("Validating job timing: current time in {} is {}, job scheduled for {}",
-                    job.getTimeZone(), now, jobStartTime);
+        log.debug("Validating job timing: current time in {} is {}, job scheduled for {}",
+                job.getTimeZone(), now, jobStartTime);
 
-            if (jobStartTime.isBefore(now)) {
+        if (jobStartTime.isBefore(now)) {
+            // Add some buffer (30 seconds) to account for processing time
+            if (jobStartTime.plusSeconds(30).isBefore(now)) {
                 log.error("Job scheduled for past time: {} in timezone {}",
                         jobStartTime, job.getTimeZone());
 
@@ -187,9 +187,15 @@ public class JobSchedulerService {
                         "Cannot schedule job in the past. Current time in " +
                                 job.getTimeZone() + " is " + now.toLocalDateTime() +
                                 " but job was scheduled for " + jobStartTime.toLocalDateTime());
+            } else {
+                // If the job is only a few seconds in the past, consider it valid
+                // This prevents race conditions during submission
+                log.info("Job scheduled for very recent past (within buffer): {} in timezone {}",
+                        jobStartTime, job.getTimeZone());
             }
         }
     }
+}
 
     /**
      * Retrieves all jobs from the database.
@@ -346,9 +352,6 @@ public class JobSchedulerService {
      * @param timeZone   the validated timezone
      * @return the new job entity
      */
-    // Update the createJobEntity method in JobSchedulerService.java to properly
-    // parse the startTime
-
     private Job createJobEntity(JobRequest jobRequest, String timeZone) {
         Job job = new Job();
         job.setClientId(jobRequest.getClientId());
@@ -357,27 +360,36 @@ public class JobSchedulerService {
         job.setTimeZone(timeZone);
 
         ZoneId zoneId = ZoneId.of(timeZone);
+        log.info("Creating job entity with timezone: {}, zoneId: {}", timeZone, zoneId);
 
         // Set start time and cron expression based on schedule type
         switch (jobRequest.getScheduleType()) {
             case IMMEDIATE:
-                // For immediate jobs, use the current time in the specified timezone
-                job.setStartTime(LocalDateTime.now(zoneId));
+                LocalDateTime nowInTimezone = LocalDateTime.now(zoneId);
+                job.setStartTime(nowInTimezone);
+                log.info("IMMEDIATE job: Setting startTime to now in timezone {}: {}", timeZone, nowInTimezone);
                 break;
 
             case ONE_TIME:
-                // For one-time jobs, ensure the start time is properly processed
                 if (jobRequest.getStartTime() != null) {
-                    // The startTime should be interpreted directly in the job's timezone
-                    // No additional conversion needed
                     LocalDateTime startTime = jobRequest.getStartTime();
-                    log.info("Setting ONE_TIME job startTime: {} in timezone: {}",
+                    log.info("ONE_TIME job raw startTime from request: {}", startTime);
+
+                    log.info("Setting ONE_TIME job startTime: {} in timezone: {}", 
                             startTime, timeZone);
 
                     job.setStartTime(startTime);
                     job.setNextFireTime(startTime);
+
+                    ZonedDateTime zonedDateTime = startTime.atZone(zoneId);
+                    ZonedDateTime utcTime = zonedDateTime.withZoneSameInstant(ZoneId.of("UTC"));
+                    ZonedDateTime istTime = zonedDateTime.withZoneSameInstant(ZoneId.of("Asia/Kolkata"));
+                    
+                    log.info("Time conversions for debugging:");
+                    log.info("- Original in {}: {}", timeZone, zonedDateTime);
+                    log.info("- Equivalent in UTC: {}", utcTime);
+                    log.info("- Equivalent in IST: {}", istTime);
                 } else {
-                    // Fallback to current time + 1 hour if no start time is provided
                     LocalDateTime defaultTime = LocalDateTime.now(zoneId).plusHours(1);
                     log.warn("No start time provided for ONE_TIME job, using default: {} in timezone: {}",
                             defaultTime, timeZone);
@@ -388,9 +400,10 @@ public class JobSchedulerService {
                 break;
 
             case RECURRING:
-                // For recurring jobs, use the current time in the specified timezone
                 job.setStartTime(LocalDateTime.now(zoneId));
                 job.setCronExpression(determineCronExpression(jobRequest));
+                log.info("RECURRING job: startTime={}, cronExpression={}", 
+                        job.getStartTime(), job.getCronExpression());
                 break;
         }
 
@@ -446,7 +459,6 @@ public class JobSchedulerService {
      * @throws SchedulerException if an error occurs during scheduling
      */
     private Trigger scheduleJobWithQuartz(Job job) throws SchedulerException {
-        // Create job detail with all necessary job data
         JobDetail jobDetail = JobBuilder.newJob(UserDataJob.class)
                 .withIdentity(job.getId().toString())
                 .usingJobData("jobId", job.getId().toString())
@@ -454,9 +466,9 @@ public class JobSchedulerService {
                 .usingJobData("timeZone", job.getTimeZone())
                 .build();
 
-        // Create trigger based on schedule type
         Trigger trigger;
         ZoneId zoneId = ZoneId.of(job.getTimeZone());
+        log.info("Scheduling job with Quartz using timezone: {}", job.getTimeZone());
 
         switch (job.getScheduleType()) {
             case IMMEDIATE:
@@ -464,18 +476,32 @@ public class JobSchedulerService {
                         .withIdentity(job.getId().toString() + "_trigger")
                         .startNow()
                         .build();
+                log.info("IMMEDIATE trigger created");
                 break;
 
             case ONE_TIME:
-                // Convert the LocalDateTime directly to a ZonedDateTime in the specified
-                // timezone
                 ZonedDateTime zonedDateTime = job.getStartTime().atZone(zoneId);
+                log.info("ONE_TIME job ZonedDateTime: {} ({})", zonedDateTime, job.getTimeZone());
+                
                 Date startDate = Date.from(zonedDateTime.toInstant());
+                
+                ZonedDateTime utcEquivalent = zonedDateTime.withZoneSameInstant(ZoneId.of("UTC"));
+                ZonedDateTime istEquivalent = zonedDateTime.withZoneSameInstant(ZoneId.of("Asia/Kolkata"));
+                
+                log.info("Scheduling job {} for execution:", job.getId());
+                log.info("- Original: {} in {}", job.getStartTime(), job.getTimeZone());
+                log.info("- As ZonedDateTime: {}", zonedDateTime);
+                log.info("- UTC equivalent: {}", utcEquivalent);
+                log.info("- IST equivalent: {}", istEquivalent);
+                log.info("- As Date for Quartz: {}", startDate);
 
                 trigger = TriggerBuilder.newTrigger()
                         .withIdentity(job.getId().toString() + "_trigger")
                         .startAt(startDate)
                         .build();
+                
+                log.info("Trigger created with startTime: {}", trigger.getStartTime());
+                log.info("Next fire time from trigger: {}", trigger.getNextFireTime());
                 break;
 
             case RECURRING:
@@ -487,16 +513,18 @@ public class JobSchedulerService {
                         .withIdentity(job.getId().toString() + "_trigger")
                         .withSchedule(cronSchedule)
                         .build();
+                
+                log.info("RECURRING trigger created with cron: {}, next fire time: {}", 
+                        job.getCronExpression(), trigger.getNextFireTime());
                 break;
 
             default:
                 throw new IllegalArgumentException("Unsupported schedule type: " + job.getScheduleType());
         }
 
-        // Schedule the job with Quartz
         scheduler.scheduleJob(jobDetail, trigger);
-        log.debug("Job scheduled with Quartz: ID={}, timeZone={}, type={}",
-                job.getId(), job.getTimeZone(), job.getScheduleType());
+        log.info("Job scheduled with Quartz: ID={}, timeZone={}, type={}, next fire time={}",
+                job.getId(), job.getTimeZone(), job.getScheduleType(), trigger.getNextFireTime());
 
         return trigger;
     }

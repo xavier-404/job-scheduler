@@ -37,6 +37,8 @@ public class JobController {
     @PostMapping
     public ResponseEntity<Void> createJob(@Valid @RequestBody JobRequest jobRequest) {
         log.info("Received request to create job for clientId: {}", jobRequest.getClientId());
+        log.info("Job request details: scheduleType={}, timeZone={}, startTime={}", 
+                 jobRequest.getScheduleType(), jobRequest.getTimeZone(), jobRequest.getStartTime());
         
         // Start the asynchronous scheduling process
         asyncJobService.scheduleJobAsync(jobRequest);
